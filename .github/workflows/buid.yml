@@ -1,0 +1,47 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential linux-tools-common
+
+    - name: Build (release)
+      run: make
+
+    - name: Build (test workloads)
+      run: make test
+
+    - name: Verify binaries exist
+      run: |
+        test -f bin/cpu-guardian && echo "✓ cpu-guardian built successfully"
+        test -f bin/test_synthetic && echo "✓ test_synthetic built successfully"
+
+    - name: Build (debug with sanitizers)
+      run: |
+        make clean
+        make debug
+
+    - name: Setup Python (ML engine)
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      run: pip install -r ml/requirements.txt
+
+    - name: Verify Python ML engine imports
+      run: python3 -c "from sklearn.ensemble import IsolationForest; from sklearn.svm import OneClassSVM; print('✓ ML dependencies OK')"
