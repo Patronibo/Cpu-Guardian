@@ -1,0 +1,41 @@
+CPU GUARDIAN CUSTOM USE LICENSE (CG-CUL v1.0)
+© 2026 CPU Guardian Project Owner. All rights reserved.
+This software, including all associated source code, documentation, algorithms, designs, and architectural components (the “Software”), may be used solely under the terms and conditions set forth below.
+
+1. Ownership
+All intellectual and industrial property rights related to the Software belong exclusively to the project owner. This license does not constitute a transfer of ownership; it grants only a limited right of use.
+
+2. Permitted Use
+The Software may be used under the following conditions:
+For educational and academic research purposes
+For security research and analysis
+For personal, non-commercial experimental use
+For studying and reviewing the source code for learning purposes
+
+3. Prohibited Uses
+The following actions are strictly prohibited:
+Selling, licensing, renting, or commercially distributing the Software
+Integrating the Software into a commercial product
+Re-licensing the Software or any derivative work
+Using the source code, in whole or in substantial part, within another project
+Incorporating the Software into proprietary or closed-source products
+Distributing the Software after removing or altering this license text
+
+4. Derivative Works
+Modifications to the Software are permitted. However:
+Any derivative work must clearly state that it is “derived from CPU Guardian.”
+Derivative works may not be used for commercial purposes.
+The original copyright notice and attribution must be preserved.
+
+5. Disclaimer of Warranty
+The Software is provided “as is.”
+No guarantees are made regarding performance.
+No warranty is provided that the Software is free of vulnerabilities or defects.
+The project owner shall not be held liable for any direct or indirect damages arising from the use of the Software.
+Use of the Software is entirely at the user’s own risk.
+
+6. Termination
+Any violation of the terms of this license will result in the automatic termination of the granted usage rights. In such a case, the user must immediately cease use and destroy all copies of the Software.
+
+7. Right to Modify the License
+The project owner reserves the right to update or modify this license unilaterally. The most current version will be published in the official project repository.
