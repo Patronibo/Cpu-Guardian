@@ -1,0 +1,743 @@
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+                           CPU GUARDIAN — FULL SYSTEM PIPELINE DIAGRAM
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+                              ÇALIŞMA DİZİNİ — PROJE YAPISI (WORKING DIRECTORY)
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+    cpu-guardian/
+    │
+    ├──┬─────────────────────────────────────────────────────────────────────────────────────────┐
+    │  │  Kök dosyalar                                                                          │
+    │  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐  │
+    │  │  │   PIPELINE.txt   │  │     README.md     │  │     Makefile     │  │  LICENSE     │  │  │
+    │  │  │   (bu diyagram)  │  │   proje dokümant. │  │   derleme kurall.│  │              │  │  │
+    │  │  └──────────────────┘  └──────────────────┘  └──────────────────┘  └──────────────┘  │  │
+    │  │  ┌──────────────────┐  ┌──────────────────┐                                          │  │
+    │  │  │  guardian.conf    │  │    .gitignore     │                                          │  │
+    │  │  │  (key=value cfg)  │  │                  │                                          │  │
+    │  │  └──────────────────┘  └──────────────────┘                                          │  │
+    │  └─────────────────────────────────────────────────────────────────────────────────────────┘
+    │
+    ├──┬─ src/  ─────────────────────────────────────────────────────────────────────────────────┐
+    │  │                                                                                         │
+    │  │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
+    │  │   │   main.c    │  │  config.c   │  │   pmu.c     │  │ telemetry.c │  │ ringbuffer.c│  │
+    │  │   │   config.h  │  │   config.h  │  │   pmu.h     │  │ telemetry.h │  │ ringbuffer.h│  │
+    │  │   │  giriş nokt.│  │  konfig     │  │  PMU/sayaç  │  │  örnekleme   │  │  SPSC kuyruk│  │
+    │  │   └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘  │
+    │  │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
+    │  │   │  anomaly.c  │  │correlation.c│  │  logger.c   │  │ ipc_socket.c │  │              │  │
+    │  │   │  anomaly.h  │  │correlation.h│  │  logger.h   │  │ ipc_socket.h │  │  (C kaynak)  │  │
+    │  │   │  z-score    │  │  süreç risk │  │  JSON/syslog│  │  Unix socket │  │              │  │
+    │  │   └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘  │
+    │  │                                                                                         │
+    │  └─────────────────────────────────────────────────────────────────────────────────────────┘
+    │
+    ├──┬─ ml/  ──────────────────────────────────────────────────────────────────────────────────┐
+    │  │                                                                                         │
+    │  │   ┌─────────────────────────────┐     ┌─────────────────────────────┐                    │
+    │  │   │     guardian_ml.py         │     │      requirements.txt       │                    │
+    │  │   │  ML anomali motoru          │     │  numpy>=1.24                │                    │
+    │  │   │  IsolationForest + OneClassSVM│   │  scikit-learn>=1.3          │                    │
+    │  │   │  socket alıcı, özellik üret│     └─────────────────────────────┘                    │
+    │  │   └─────────────────────────────┘                                                       │
+    │  │                                                                                         │
+    │  └─────────────────────────────────────────────────────────────────────────────────────────┘
+    │
+    ├──┬─ tests/  ───────────────────────────────────────────────────────────────────────────────┐
+    │  │                                                                                         │
+    │  │   ┌─────────────────────────────┐                                                       │
+    │  │   │     test_synthetic.c       │   Sentetik iş yükü / saldırı simülasyonu               │
+    │  │   │  mod 1: normal, 2: cache   │   (make test → bin/test_synthetic)                    │
+    │  │   │  3: branch, 4: karışık      │                                                       │
+    │  │   └─────────────────────────────┘                                                       │
+    │  │                                                                                         │
+    │  └─────────────────────────────────────────────────────────────────────────────────────────┘
+    │
+    └──┬─ bin/  (make sonrası)     obj/  (make sonrası)
+       │
+       │   ┌─────────────────────────────┐     ┌─────────────────────────────┐
+       │   │  bin/cpu-guardian          │     │  obj/*.o                     │
+       │   │  çalıştırılabilir          │     │  nesne dosyaları             │
+       │   └─────────────────────────────┘     └─────────────────────────────┘
+       │
+       └──  make clean  →  bin/ ve obj/ silinir
+
+    ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+    │                                     CONFIGURATION INPUTS                                    │
+    │                                                                                             │
+    │   guardian.conf (key=value)          CLI Arguments                 Hard-coded Defaults       │
+    │   ┌──────────────────────┐     ┌──────────────────────────┐     ┌──────────────────────┐    │
+    │   │ sampling_interval_us │     │ -c FILE  config path     │     │ interval   = 1000 us │    │
+    │   │ learning_duration_sec│     │ -i USEC  interval        │     │ learning   = 60 sec  │    │
+    │   │ z_threshold          │     │ -l SEC   learning time   │     │ z_threshold= 3.5     │    │
+    │   │ burst_window         │     │ -z THRESH z-score        │     │ burst_win  = 10      │    │
+    │   │ target_cpu           │     │ -C CPU   target core     │     │ ringbuf    = 8192    │    │
+    │   │ target_pid           │     │ -p PID   target process  │     │ decay      = 0.95    │    │
+    │   │ log_file             │     │ -o FILE  log output      │     │ corr_win   = 30 sec  │    │
+    │   │ log_to_syslog        │     │ -s       syslog          │     │ cooldown   = 5 sec   │    │
+    │   │ verbose              │     │ -v       verbose          │     │ cpu/pid    = -1 (all)│    │
+    │   │ risk_decay_factor    │     │ -T       PMU test mode   │     └──────────────────────┘    │
+    │   │ ...                  │     │ -h       help            │               │                  │
+    │   └──────────┬───────────┘     └────────────┬─────────────┘               │                  │
+    │              │                              │                             │                  │
+    │              │      ┌───────────────────────┘                             │                  │
+    │              │      │                                                     │                  │
+    │              ▼      ▼                                                     │                  │
+    │     ┌─────────────────────────────┐                                       │                  │
+    │     │ config_set_defaults(&cfg)   │◀──────────────────────────────────────┘                  │
+    │     │ config_parse_args(&cfg)     │──▶ config_load_file() if -c given                       │
+    │     │     (config.c / config.h)   │                                                         │
+    │     └──────────────┬──────────────┘                                                         │
+    │                    │   Priority: defaults → config file → CLI overrides                      │
+    └────────────────────┼────────────────────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+              ┌─────────────────────────┐
+              │   guardian_config_t cfg  │  (unified configuration struct)
+              └────────────┬────────────┘
+                           │
+          ┌────────────────┼──────────────────────────────────┐
+          │                │                                  │
+          ▼                ▼                                  ▼
+    ┌───────────┐   ┌─────────────┐                  ┌──────────────────────┐
+    │ -T flag?  │   │ Signal Setup│                  │    PMU Test Mode     │
+    │           │   │ SIGINT/TERM │                  │ pmu_open → pmu_read  │
+    │ NO ───┐   │   │ → g_shutdown│                  │ → print raw → exit   │
+    └───────┘   │   └─────────────┘                  └──────────────────────┘
+       │        │
+       │ (normal flow continues)
+       │
+═══════╧══════════════════════════════════════════════════════════════════════════════════════════════
+                                      SUBSYSTEM INITIALIZATION
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+       │
+       ├──────────────────────────────────────────────────────────────────────────────────┐
+       │                                                                                  │
+       ▼                                                                                  │
+ ┌──────────────────────────────┐                                                         │
+ │         LOGGER INIT          │                                                         │
+ │       (logger.c / .h)        │                                                         │
+ │                              │                                                         │
+ │  logger_init(&logger,        │                                                         │
+ │    log_file, to_file,        │                                                         │
+ │    to_syslog, cooldown)      │                                                         │
+ │                              │                                                         │
+ │  Outputs:                    │                                                         │
+ │   ├─ stdout  (always on)     │                                                         │
+ │   ├─ file    (if -o given)   │                                                         │
+ │   └─ syslog  (if -s given)   │                                                         │
+ └──────────────┬───────────────┘                                                         │
+                │                                                                         │
+                ▼                                                                         │
+ ┌──────────────────────────────┐                                                         │
+ │      RING BUFFER INIT        │                                                         │
+ │    (ringbuffer.c / .h)       │                                                         │
+ │                              │                                                         │
+ │  ringbuffer_init(&rb, 8192)  │                                                         │
+ │                              │                                                         │
+ │  Lock-free SPSC queue        │                                                         │
+ │  Power-of-2 capacity         │                                                         │
+ │  Cache-line aligned head/tail│                                                         │
+ │  atomic_size_t indices       │                                                         │
+ │                              │                                                         │
+ │  ┌────┬────┬────┬─···─┬────┐ │                                                         │
+ │  │ s0 │ s1 │ s2 │     │ sN │ │  telemetry_sample_t slots                               │
+ │  └────┴────┴────┴─···─┴────┘ │                                                         │
+ │   ▲ head (producer writes)   │                                                         │
+ │   ▼ tail (consumer reads)    │                                                         │
+ └──────────────┬───────────────┘                                                         │
+                │                                                                         │
+                ▼                                                                         │
+ ┌──────────────────────────────┐    ┌────────────────────────────┐                        │
+ │    TELEMETRY ENGINE INIT     │    │    ANOMALY ENGINE INIT     │                        │
+ │    (telemetry.c / .h)        │    │    (anomaly.c / .h)        │                        │
+ │                              │    │                            │                        │
+ │  telemetry_init(&eng,        │    │  anomaly_init(&anomaly,    │                        │
+ │    interval_us, cpu, pid)    │    │    z_threshold=3.5,        │                        │
+ │                              │    │    burst_window=10)        │                        │
+ │  telemetry_start(&eng, &rb)  │    │                            │◀───────────────────────┘
+ │  → spawns background thread  │    │  Allocates circular buffer │
+ └──────────────┬───────────────┘    │  recent_cmr[burst_window]  │
+                │                    └─────────────┬──────────────┘
+                │                                  │
+                │                    ┌─────────────┴──────────────┐
+                │                    │  CORRELATION ENGINE INIT   │
+                │                    │  (correlation.c / .h)      │
+                │                    │                            │
+                │                    │  correlation_init(&corr,   │
+                │                    │    decay=0.95, window=30s) │
+                │                    │                            │
+                │                    │  Tracks up to 256 PIDs     │
+                │                    │  EMA scoring per process   │
+                │                    └────────────────────────────┘
+                │
+                ▼
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+                            BACKGROUND THREAD — HARDWARE DATA ACQUISITION
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+ ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │                         TELEMETRY SAMPLING THREAD  (pthread)                                     │
+ │                                                                                                  │
+ │   ┌───────────────────────┐                                                                      │
+ │   │   pin_to_cpu(cpu)     │  sched_setaffinity → lock thread to target core                      │
+ │   └───────────┬───────────┘                                                                      │
+ │               │                                                                                  │
+ │               ▼                                                                                  │
+ │  ╔════════════════════════════════════════════════════════════════════════════════╗                │
+ │  ║                    CPU HARDWARE — PMU (Performance Monitoring Unit)            ║                │
+ │  ║                                                                                ║                │
+ │  ║  pmu_open() → perf_event_open() syscall                                       ║                │
+ │  ║                                                                                ║                │
+ │  ║  ┌─────────────────────────────────────────────────────────────────────────┐   ║                │
+ │  ║  │  Counter 0: CPU_CYCLES              (critical, group leader)           │   ║                │
+ │  ║  │  Counter 1: INSTRUCTIONS            (critical)                         │   ║                │
+ │  ║  │  Counter 2: CACHE_MISSES            (fallback → CACHE_REF → SW_CLOCK) │   ║                │
+ │  ║  │  Counter 3: BRANCH_MISSES           (optional)                         │   ║                │
+ │  ║  │  Counter 4: BRANCH_INSTRUCTIONS     (optional)                         │   ║                │
+ │  ║  │  Counter 5: CACHE_REFERENCES        (optional)                         │   ║                │
+ │  ║  └─────────────────────────────────────────────────────────────────────────┘   ║                │
+ │  ║                                                                                ║                │
+ │  ║  System checks:                                                                ║                │
+ │  ║    /proc/sys/kernel/perf_event_paranoid  ──▶ warn if > 2                       ║                │
+ │  ║    /proc/cpuinfo (hypervisor flag)       ──▶ warn if VM detected               ║                │
+ │  ║    PERF_EVENT_IOC_RESET + IOC_ENABLE     ──▶ start counting                    ║                │
+ │  ╚═══════════════════════════════════╤════════════════════════════════════════════╝                │
+ │                                      │                                                            │
+ │                                      ▼                                                            │
+ │                         ┌──────────────────────────────┐                                          │
+ │                         │   SAMPLING LOOP (continuous)  │                                          │
+ │                         │   while (eng->running)        │                                          │
+ │                         └──────────────┬───────────────┘                                          │
+ │                                        │                                                          │
+ │                                        ▼                                                          │
+ │                             ┌─────────────────────┐                                               │
+ │                             │  nanosleep(interval) │  (default 1000 µs = 1 ms)                    │
+ │                             └──────────┬──────────┘                                               │
+ │                                        │                                                          │
+ │                                        ▼                                                          │
+ │                             ┌─────────────────────┐                                               │
+ │                             │   pmu_read(&cur)     │  read 6 counters via read() syscall          │
+ │                             │   read_scaled(fd)    │  multiplexing correction:                     │
+ │                             │                     │  val × (time_enabled / time_running)           │
+ │                             └──────────┬──────────┘                                               │
+ │                                        │                                                          │
+ │                                        ▼                                                          │
+ │                        ┌───────────────────────────────────┐                                      │
+ │                        │         DELTA COMPUTATION          │                                      │
+ │                        │                                   │                                      │
+ │                        │  delta.cycles     = cur - prev     │                                      │
+ │                        │  delta.instructions = cur - prev   │                                      │
+ │                        │  delta.cache_misses = cur - prev   │                                      │
+ │                        │  delta.branch_misses = cur - prev  │                                      │
+ │                        │  delta.branch_inst  = cur - prev   │                                      │
+ │                        │  delta.cache_ref    = cur - prev   │                                      │
+ │                        └───────────────┬───────────────────┘                                      │
+ │                                        │                                                          │
+ │                                        ▼                                                          │
+ │                     ┌────────────────────────────────────────────┐                                 │
+ │                     │         DERIVED METRICS (compute_derived)   │                                 │
+ │                     │                                            │                                 │
+ │                     │  cache_miss_rate  = cache_misses            │                                 │
+ │                     │                    ─────────────            │                                 │
+ │                     │                    instructions             │                                 │
+ │                     │                                            │                                 │
+ │                     │  branch_miss_rate = branch_misses           │                                 │
+ │                     │                    ──────────────           │                                 │
+ │                     │                    branch_instructions      │                                 │
+ │                     │                                            │                                 │
+ │                     │  ipc              = instructions            │                                 │
+ │                     │                    ────────────             │                                 │
+ │                     │                    cycles                   │                                 │
+ │                     └────────────────────┬───────────────────────┘                                 │
+ │                                          │                                                        │
+ │                                          ▼                                                        │
+ │                         ┌──────────────────────────────────┐                                      │
+ │                         │     telemetry_sample_t sample     │                                      │
+ │                         │                                  │                                      │
+ │                         │  .timestamp_ns   (CLOCK_MONOTONIC)│                                      │
+ │                         │  .cycles                          │                                      │
+ │                         │  .instructions                    │                                      │
+ │                         │  .cache_misses                    │                                      │
+ │                         │  .cache_references                │                                      │
+ │                         │  .branch_misses                   │                                      │
+ │                         │  .branch_instructions             │                                      │
+ │                         │  .cache_miss_rate   (float)       │                                      │
+ │                         │  .branch_miss_rate  (float)       │                                      │
+ │                         │  .ipc               (float)       │                                      │
+ │                         └──────────────┬───────────────────┘                                      │
+ │                                        │                                                          │
+ │                                        ▼                                                          │
+ │                              ┌───────────────────┐                                                │
+ │                              │ ringbuffer_push()  │  atomic, lock-free                            │
+ │                              │ (producer side)    │                                                │
+ │                              └────────┬──────────┘                                                │
+ │                                       │                                                           │
+ └───────────────────────────────────────┼───────────────────────────────────────────────────────────┘
+                                         │
+                 ┌───────────────────────┐│┌───────────────────────────┐
+                 │  LOCK-FREE SPSC RING  │││  telemetry_sample_t       │
+                 │  BUFFER (8192 slots)  │▼│  flows from producer      │
+                 │  atomic head/tail     ├─┤  thread to consumer       │
+                 │  cache-line padded    │ │  (main thread)            │
+                 └───────────────────────┘ └───────────────────────────┘
+                                         │
+                              ┌──────────┴──────────┐
+                              │  ringbuffer_pop()    │  atomic, lock-free
+                              │  (consumer / main)   │
+                              └──────────┬──────────┘
+                                         │
+══════════════════════════════════════════╧════════════════════════════════════════════════════════════
+                                   PHASE 1: LEARNING
+                              (builds statistical baseline)
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+                                         │
+                                         ▼
+                        ┌──────────────────────────────────────┐
+                        │   LEARNING LOOP (60 seconds default)  │
+                        │   while (elapsed < learning_duration) │
+                        └─────────────────┬────────────────────┘
+                                          │
+                                          ▼
+                         ┌─────────────────────────────────────────────────────────┐
+                         │              anomaly_learn(&anomaly, &sample)           │
+                         │                                                         │
+                         │   For each sample, accumulates:                         │
+                         │                                                         │
+                         │   sum_cmr  += cache_miss_rate                           │
+                         │   sum_cmr² += cache_miss_rate²    (for variance)        │
+                         │                                                         │
+                         │   sum_bmr  += branch_miss_rate                          │
+                         │   sum_bmr² += branch_miss_rate²   (for variance)        │
+                         │                                                         │
+                         │   sum_ipc  += ipc                                       │
+                         │   sum_ipc² += ipc²                (for variance)        │
+                         │                                                         │
+                         │   n++                                                   │
+                         │                                                         │
+                         │   Single-pass streaming — no historical storage needed  │
+                         └────────────────────────┬────────────────────────────────┘
+                                                  │
+                                                  │  after 60 seconds
+                                                  ▼
+                         ┌─────────────────────────────────────────────────────────┐
+                         │          anomaly_finalize_baseline(&anomaly)            │
+                         │                                                         │
+                         │   mean = Σx / n                                         │
+                         │                                                         │
+                         │   var  = E[x²] − (E[x])²                               │
+                         │        = (Σx²/n) − (Σx/n)²                             │
+                         │                                                         │
+                         │   std  = √var   (clamped: if var < 0 → var = 0)        │
+                         │                                                         │
+                         │   ┌───────────────────────────────────────────────┐     │
+                         │   │         baseline_profile_t                    │     │
+                         │   │                                               │     │
+                         │   │  mean_cache_miss_rate   std_cache_miss_rate   │     │
+                         │   │  mean_branch_miss_rate  std_branch_miss_rate  │     │
+                         │   │  mean_ipc               std_ipc              │     │
+                         │   │  sample_count           ready = true         │     │
+                         │   └───────────────────────────────────────────────┘     │
+                         └────────────────────────┬────────────────────────────────┘
+                                                  │
+                                                  ▼
+                                   ┌──────────────────────────┐
+                                   │   drop_privileges()      │
+                                   │   setuid/setgid back to  │
+                                   │   original user (SUDO_UID)│
+                                   └──────────────┬───────────┘
+                                                  │
+══════════════════════════════════════════════════╧════════════════════════════════════════════════════
+                                   PHASE 2: DETECTION
+                              (continuous real-time monitoring)
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+                                                  │
+                                                  ▼
+                           ┌───────────────────────────────────┐
+                           │   DETECTION LOOP (until SIGINT)    │
+                           │   while (!g_shutdown)              │
+                           └───────────────┬───────────────────┘
+                                           │
+                           ringbuffer_pop() │ → telemetry_sample_t
+                                           │
+                                           ▼
+    ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+    │                        anomaly_detect(&anomaly, &sample, &result)                            │
+    │                                                                                              │
+    │  ┌─────────────────────────────────────────────────────────────────────────────────────────┐  │
+    │  │                            Z-SCORE COMPUTATION                                          │  │
+    │  │                                                                                         │  │
+    │  │                     value − mean                                                        │  │
+    │  │  z_score  =  ───────────────────────      (compute_z helper; returns 0 if std < 1e-12) │  │
+    │  │                       std                                                               │  │
+    │  │                                                                                         │  │
+    │  │  z_cache_miss  = z(cache_miss_rate,  mean_cmr, std_cmr)                                │  │
+    │  │  z_branch_miss = z(branch_miss_rate, mean_bmr, std_bmr)                                │  │
+    │  │  z_ipc         = z(ipc,              mean_ipc, std_ipc)                                │  │
+    │  └─────────────────────────────────────────────────────────────────────────────────────────┘  │
+    │                                           │                                                   │
+    │                                           ▼                                                   │
+    │  ┌─────────────────────────────────────────────────────────────────────────────────────────┐  │
+    │  │                         THRESHOLD COMPARISON  (z_threshold = 3.5)                       │  │
+    │  │                                                                                         │  │
+    │  │  z_cache_miss  >  +3.5   ──▶  ANOMALY_CACHE_MISS_SPIKE   (1<<0)   cache spike ↑       │  │
+    │  │  z_branch_miss >  +3.5   ──▶  ANOMALY_BRANCH_MISS_SPIKE  (1<<1)   branch spike ↑      │  │
+    │  │  z_ipc         <  -3.5   ──▶  ANOMALY_IPC_COLLAPSE       (1<<2)   IPC drops ↓         │  │
+    │  │                                                                                         │  │
+    │  │  Note: cache/branch check positive spikes; IPC checks negative (degradation)           │  │
+    │  └─────────────────────────────────────────────────────────────────────────────────────────┘  │
+    │                                           │                                                   │
+    │                                           ▼                                                   │
+    │  ┌─────────────────────────────────────────────────────────────────────────────────────────┐  │
+    │  │                         TEMPORAL PATTERN DETECTION                                       │  │
+    │  │                                                                                         │  │
+    │  │  BURST DETECTION:                                                                       │  │
+    │  │  ┌────────────────────────────────────────────────────────────┐                          │  │
+    │  │  │  consecutive_anomalies++  (reset to 0 when normal)        │                          │  │
+    │  │  │  if consecutive_anomalies >= burst_window (10)            │                          │  │
+    │  │  │     ──▶ ANOMALY_BURST_PATTERN  (1<<3)                     │                          │  │
+    │  │  └────────────────────────────────────────────────────────────┘                          │  │
+    │  │                                                                                         │  │
+    │  │  OSCILLATION DETECTION:                                                                 │  │
+    │  │  ┌────────────────────────────────────────────────────────────┐                          │  │
+    │  │  │  Circular buffer: recent_cmr[burst_window]                │                          │  │
+    │  │  │  detect_oscillation() counts direction changes            │                          │  │
+    │  │  │  if direction_changes >= cap/2                            │                          │  │
+    │  │  │     ──▶ ANOMALY_OSCILLATION  (1<<4)                       │                          │  │
+    │  │  │  (detects cache thrashing / scheduler jitter)             │                          │  │
+    │  │  └────────────────────────────────────────────────────────────┘                          │  │
+    │  └─────────────────────────────────────────────────────────────────────────────────────────┘  │
+    │                                           │                                                   │
+    │                                           ▼                                                   │
+    │  ┌─────────────────────────────────────────────────────────────────────────────────────────┐  │
+    │  │                        COMPOSITE SCORE (severity metric)                                │  │
+    │  │                                                                                         │  │
+    │  │  max_z = max(|z_cache_miss|, |z_branch_miss|, |z_ipc|)                                 │  │
+    │  │                                                                                         │  │
+    │  │                              1                                                          │  │
+    │  │  composite_score = 1 − ─────────────────────      sigmoid-like, range [0.0 , 1.0]      │  │
+    │  │                           1 + max_z / 3.5                                               │  │
+    │  │                                                                                         │  │
+    │  │  Examples:  max_z=0   → score=0.00  (normal)                                           │  │
+    │  │             max_z=3.5 → score=0.50  (threshold boundary)                               │  │
+    │  │             max_z=7.0 → score=0.67  (significant)                                      │  │
+    │  │             max_z=35  → score=0.91  (extreme)                                          │  │
+    │  └─────────────────────────────────────────────────────────────────────────────────────────┘  │
+    │                                                                                              │
+    │  OUTPUT:  anomaly_result_t                                                                   │
+    │   ├─ z_cache_miss      (double)                                                              │
+    │   ├─ z_branch_miss     (double)                                                              │
+    │   ├─ z_ipc             (double)                                                              │
+    │   ├─ composite_score   (double, 0.0–1.0)                                                     │
+    │   ├─ anomaly_flags     (uint32_t bitmask)                                                    │
+    │   └─ sustained_count   (uint32_t)                                                            │
+    └──────────────────────────────────────────────┬───────────────────────────────────────────────┘
+                                                   │
+                              ┌────────────────────┤
+                              │                    │
+                              ▼                    │   (only if anomaly_flags != 0)
+               ┌─────────────────────────┐         │
+               │   ALERT LEVEL DECISION  │         │
+               │                         │         │
+               │  score > 0.8            │         │
+               │   OR BURST_PATTERN      │         │
+               │   → ALERT_CRITICAL      │         │
+               │                         │         │
+               │  score > 0.5            │         │
+               │   → ALERT_WARNING       │         │
+               │                         │         │
+               │  otherwise              │         │
+               │   → ALERT_INFO          │         │
+               └────────────┬────────────┘         │
+                            │                      │
+                            ▼                      ▼
+    ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+    │                       CORRELATION ENGINE  (correlation.c / .h)                                │
+    │                                                                                              │
+    │  correlation_update(&corr, pid, tid, composite_score, timestamp_ns)                          │
+    │                                                                                              │
+    │  ┌─────────────────────────────────────────────────────────────────────────┐                  │
+    │  │  Per-process risk tracking (up to 256 PIDs)                            │                  │
+    │  │                                                                         │                  │
+    │  │  process_risk_t:                                                        │                  │
+    │  │   .pid, .tid, .comm (from /proc/[pid]/comm)                            │                  │
+    │  │   .anomaly_score  ←  EMA:  α·score + (1−α)·prev   (α = 0.3)           │                  │
+    │  │   .suspicious_samples++ if score > 0.5                                 │                  │
+    │  │   .total_samples++                                                     │                  │
+    │  │   .last_seen_ns                                                        │                  │
+    │  └─────────────────────────────────────────────────────────────────────────┘                  │
+    │                                                                                              │
+    │  correlation_top_risk(&corr) → highest-scoring process                                       │
+    │                                                                                              │
+    │  ┌─────────────────────────────────────────────────────────────────────────┐                  │
+    │  │  PERIODIC DECAY (every 1 second)                                       │                  │
+    │  │                                                                         │                  │
+    │  │  correlation_decay(&corr, now_ns)                                      │                  │
+    │  │    for each tracked process:                                            │                  │
+    │  │      anomaly_score *= decay_factor (0.95)                              │                  │
+    │  │      if score < 0.001 → 0.0                                            │                  │
+    │  │      if age > window (30s) → deactivate                                │                  │
+    │  └─────────────────────────────────────────────────────────────────────────┘                  │
+    └───────────────────────────────────────────────┬──────────────────────────────────────────────┘
+                                                    │
+                                                    ▼
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+                                         OUTPUT LAYER
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+                              ┌────────────────────────────────────┐
+                              │     logger_alert() — JSON output    │
+                              │     (with cooldown: 5 sec default)  │
+                              └────────────────┬───────────────────┘
+                                               │
+                   ┌───────────────────────────┬┴───────────────────────────┐
+                   │                           │                           │
+                   ▼                           ▼                           ▼
+        ┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
+        │     STDOUT       │         │    LOG FILE      │         │     SYSLOG      │
+        │  (always on)     │         │  (-o flag)       │         │  (-s flag)      │
+        └────────┬────────┘         └────────┬────────┘         └────────┬────────┘
+                 │                           │                           │
+                 └───────────────────────────┼───────────────────────────┘
+                                             │
+                                             ▼
+                    ┌───────────────────────────────────────────────────┐
+                    │              JSON Alert Format                     │
+                    │                                                   │
+                    │  {                                                │
+                    │    "level":         "CRITICAL",                   │
+                    │    "timestamp":     1708700000000000000,          │
+                    │    "pid":           1234,                         │
+                    │    "comm":          "suspicious_proc",            │
+                    │    "anomaly_score": 0.87,                        │
+                    │    "reason":        "cache_miss_spike burst_pattern"│
+                    │  }                                                │
+                    └───────────────────────────────────────────────────┘
+
+
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+                                     SHUTDOWN (SIGINT / SIGTERM)
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+                                ┌──────────────────────────┐
+                                │  signal_handler()         │
+                                │  g_shutdown = 1           │
+                                └─────────────┬────────────┘
+                                              │
+                    ┌─────────────────────────┬┴─────────────────────────┐
+                    │                         │                         │
+                    ▼                         ▼                         ▼
+         ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+         │ telemetry_stop() │     │ anomaly_destroy() │     │ ringbuffer       │
+         │  running=false   │     │  free(recent_cmr) │     │ _destroy()       │
+         │  pthread_join    │     │                   │     │  free(buffer)    │
+         │  pmu_disable     │     └──────────────────┘     └──────────────────┘
+         │  pmu_close       │                                       │
+         │  (close all fds) │              ┌────────────────────────┘
+         └──────────────────┘              │
+                                           ▼
+                                ┌──────────────────┐
+                                │ logger_destroy()  │
+                                │  fclose(file)     │
+                                │  closelog()       │
+                                └──────────────────┘
+                                           │
+                                           ▼
+                              ┌──────────────────────────┐
+                              │  Print summary & exit     │
+                              │  Total samples: N         │
+                              │  Anomalies: M             │
+                              │  EXIT_SUCCESS (0)         │
+                              └──────────────────────────┘
+
+
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+                               DETECTION CAPABILITIES SUMMARY
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+  C-side (fallback, z-score based):
+
+    ┌────────────────────┬──────────────────────────┬──────────────────────────────────┐
+    │     Pattern        │       Indicator          │         Attack Type              │
+    ├────────────────────┼──────────────────────────┼──────────────────────────────────┤
+    │ CACHE_MISS_SPIKE   │ z_cmr > +3.5             │ Prime+Probe, Flush+Reload       │
+    │ BRANCH_MISS_SPIKE  │ z_bmr > +3.5             │ Spectre-variant branch abuse    │
+    │ IPC_COLLAPSE       │ z_ipc < -3.5             │ Microarchitectural contention   │
+    │ BURST_PATTERN      │ 10+ consecutive anomalies│ Active side-channel probing     │
+    │ OSCILLATION        │ rapid high/low in window │ Timed probing / cache thrashing │
+    └────────────────────┴──────────────────────────┴──────────────────────────────────┘
+
+  Python ML (primary, ensemble-based):
+
+    ┌────────────────────┬──────────────────────────┬──────────────────────────────────┐
+    │   Decision         │       Mechanism          │         Advantage                │
+    ├────────────────────┼──────────────────────────┼──────────────────────────────────┤
+    │ Isolation Forest   │ Tree-based isolation     │ Multi-modal, no distribution     │
+    │                    │ n_estimators=200         │ assumption, fast inference       │
+    │ One-Class SVM      │ RBF kernel boundary      │ Tight normal boundary,           │
+    │                    │ nu=0.01                  │ complementary bias               │
+    │ Ensemble CRITICAL  │ Both models agree        │ 5-10x false positive reduction   │
+    │ Ensemble WARNING   │ One model flags          │ Early warning, lower confidence  │
+    │ Periodic retrain   │ Every 5min, normal only  │ Adaptive baseline, anti-poison   │
+    └────────────────────┴──────────────────────────┴──────────────────────────────────┘
+
+
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+                         ML HYBRID ARCHITECTURE — IPC DATA FLOW
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+ ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │                           C PROCESS  (cpu-guardian binary)                                        │
+ │                                                                                                  │
+ │  PMU Counters ──▶ Telemetry Thread ──▶ Ring Buffer ──▶ Main Loop                                │
+ │                   (1ms sampling)       (lock-free)      │                                        │
+ │                                                         ├── anomaly_detect() [C fallback]        │
+ │                                                         │                                        │
+ │                                                         └── ipc_socket_send()                    │
+ │                                                              │                                   │
+ └──────────────────────────────────────────────────────────────┼───────────────────────────────────┘
+                                                                │
+                                                   Unix Domain Socket
+                                                   (SOCK_DGRAM, non-blocking)
+                                                   /tmp/cpu-guardian.sock
+                                                   68 bytes per datagram
+                                                                │
+ ┌──────────────────────────────────────────────────────────────┼───────────────────────────────────┐
+ │                         PYTHON PROCESS  (guardian_ml.py)      │                                   │
+ │                                                              ▼                                   │
+ │                                                   ┌───────────────────┐                          │
+ │                                                   │  Socket Receive   │                          │
+ │                                                   │  struct.unpack()  │                          │
+ │                                                   └─────────┬─────────┘                          │
+ │                                                             │                                    │
+ │                                                             ▼                                    │
+ │                                              ┌──────────────────────────────┐                    │
+ │                                              │   Feature Engineering        │                    │
+ │                                              │                              │                    │
+ │                                              │  Raw:     cmr, bmr, ipc  (3) │                    │
+ │                                              │  R.Mean:  window=32      (3) │                    │
+ │                                              │  R.Std:   window=32      (3) │                    │
+ │                                              │  Delta:   rate of change (3) │                    │
+ │                                              │  Cross:   cmr*ipc, bmr*ipc(2)│                    │
+ │                                              │           Total: 14 features │                    │
+ │                                              └──────────────┬───────────────┘                    │
+ │                                                             │                                    │
+ │                          ┌──────────────────────────────────┤                                    │
+ │                          │ LEARNING PHASE                   │ DETECTION PHASE                    │
+ │                          ▼                                  ▼                                    │
+ │              ┌─────────────────────┐           ┌─────────────────────────┐                       │
+ │              │ Accumulate samples  │           │  StandardScaler         │                       │
+ │              │ (5000 default)      │           │  transform(x)          │                       │
+ │              └──────────┬──────────┘           └────────────┬────────────┘                       │
+ │                         │                                   │                                    │
+ │                         ▼                                   ▼                                    │
+ │              ┌─────────────────────┐        ┌──────────────────────────────┐                     │
+ │              │  Train Models       │        │   ENSEMBLE INFERENCE          │                     │
+ │              │                     │        │                              │                     │
+ │              │  StandardScaler.fit │        │  ┌────────────────────────┐  │                     │
+ │              │  IsolationForest    │        │  │  Isolation Forest      │  │                     │
+ │              │  OneClassSVM        │        │  │  predict() + score()   │  │                     │
+ │              │                     │        │  └───────────┬────────────┘  │                     │
+ │              │  Diversity check:   │        │              │               │                     │
+ │              │  - feature variance │        │  ┌────────────────────────┐  │                     │
+ │              │  - CV analysis      │        │  │  One-Class SVM         │  │                     │
+ │              │  - feature ranking  │        │  │  predict() + score()   │  │                     │
+ │              └─────────────────────┘        │  └───────────┬────────────┘  │                     │
+ │                                             │              │               │                     │
+ │                                             │              ▼               │                     │
+ │                                             │  ┌────────────────────────┐  │                     │
+ │                                             │  │ Ensemble Decision      │  │                     │
+ │                                             │  │                        │  │                     │
+ │                                             │  │ IF+SVM = anomaly       │  │                     │
+ │                                             │  │   → CRITICAL           │  │                     │
+ │                                             │  │ IF or SVM = anomaly    │  │                     │
+ │                                             │  │   → WARNING            │  │                     │
+ │                                             │  │ Both normal            │  │                     │
+ │                                             │  │   → NORMAL             │  │                     │
+ │                                             │  └───────────┬────────────┘  │                     │
+ │                                             └──────────────┼──────────────┘                     │
+ │                                                            │                                    │
+ │                              ┌──────────────────────────┬──┴──────────────────────┐              │
+ │                              │ NORMAL                   │ WARNING / CRITICAL      │              │
+ │                              ▼                          ▼                         │              │
+ │                   ┌─────────────────────┐    ┌──────────────────────────┐         │              │
+ │                   │ Add to retrain buf  │    │ JSON alert output        │         │              │
+ │                   │ (non-anomalous only)│    │                          │         │              │
+ │                   └────────┬────────────┘    │ {                        │         │              │
+ │                            │                 │  "level": "CRITICAL",    │         │              │
+ │                            │  every 5 min    │  "anomaly_score": 0.87,  │         │              │
+ │                            ▼                 │  "reason": "cache_miss.."│         │              │
+ │                   ┌─────────────────────┐    │  "model_agreement":      │         │              │
+ │                   │ Periodic Retrain    │    │     "both",              │         │              │
+ │                   │ (adaptive baseline) │    │  "if_score": -0.42,      │         │              │
+ │                   │                     │    │  "svm_score": -0.31      │         │              │
+ │                   │ Replaces models     │    │ }                        │         │              │
+ │                   │ atomically          │    └──────────────────────────┘         │              │
+ │                   └─────────────────────┘                                         │              │
+ │                                                                                   │              │
+ │                                              ┌────────────────────────────────────┘              │
+ │                                              │                                                   │
+ │                                              ▼                                                   │
+ │                                   ┌─────────────────────┐                                        │
+ │                                   │   stdout / file     │                                        │
+ │                                   └─────────────────────┘                                        │
+ └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+                                  MODULE DEPENDENCY MAP
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+                                   ┌───────────┐
+                                   │  main.c   │
+                                   └─────┬─────┘
+                     ┌──────┬──────┬─────┼─────┬──────────┬──────────┬────────────┐
+                     │      │      │     │     │          │          │            │
+                     ▼      ▼      ▼     ▼     ▼          ▼          ▼            ▼
+               ┌────────┐┌─────┐┌────┐┌────┐┌────────┐┌───────┐┌──────────┐┌──────────┐
+               │config.c││pmu.c││tele││ring││anomaly.c││correl.││ logger.c ││ipc_sock.c│
+               │config.h││pmu.h││.c/h││.c/h││anomaly.h││.c/.h ││ logger.h ││ipc_sock.h│
+               └────────┘└──┬──┘└─┬──┘└────┘└────┬───┘└───────┘└──────────┘└─────┬────┘
+                            │     │               │                               │
+                            │     └───────┐       │                               │
+                            │             ▼       │                               │
+                            │      ┌────────────┐ │                               │
+                            └─────▶│telemetry.h │◀┴───────────────────────────────┘
+                                   │(sample_t)  │
+                                   └─────┬──────┘
+                                         │
+                              Unix Domain Socket
+                                         │
+                                         ▼
+                              ┌────────────────────┐
+                              │  guardian_ml.py     │
+                              │  (Python process)   │
+                              │                    │
+                              │  numpy             │
+                              │  scikit-learn      │
+                              └────────────────────┘
+
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+                                    HOW TO RUN (HYBRID MODE)
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+
+  Terminal 1 — Start ML engine first (binds socket):
+
+      cd ml/
+      pip install -r requirements.txt
+      python3 guardian_ml.py --verbose
+
+  Terminal 2 — Start C collector (connects to socket):
+
+      sudo ./bin/cpu-guardian -c guardian.conf -v
+
+  The C side falls back to statistical detection if the ML engine is not running.
+
+══════════════════════════════════════════════════════════════════════════════════════════════════════
+                                          END OF PIPELINE
+══════════════════════════════════════════════════════════════════════════════════════════════════════
